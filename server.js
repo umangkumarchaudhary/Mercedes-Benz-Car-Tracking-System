@@ -6,6 +6,7 @@ require("dotenv").config();
 
 const { router: userAuthRoutes } = require("./userAuth");
 const vehicleRoutes = require("./vehicleRoutes");
+const dashboardRoutes = require("./dashboardRoutes");
 
 const app = express();
 
@@ -30,6 +31,7 @@ mongoose.connection.on("disconnected", () => {
 // ✅ Use Routes
 app.use("/api", userAuthRoutes);
 app.use("/api", vehicleRoutes);
+app.use("/api", dashboardRoutes);
 
 // ✅ Health Check Route
 app.get("/health", (req, res) => {
