@@ -177,64 +177,65 @@ router.get("/dashboard/vehicle-count-per-stage", async (req, res) => {
 
 //route to fetch all vehicles from database
 router.get("/dashboard/all-vehicles", async (req, res) => {
-    try {
-      // Fetch all vehicles from the database
-      const vehicles = await Vehicle.find().sort({ entryTime: -1 });
-  
-      if (!vehicles || vehicles.length === 0) {
-        return res.status(404).json({ success: false, message: "No vehicles found." });
-      }
-  
-      // Process each vehicle to extract stage timeline and current stage
-      const vehicleData = vehicles.map(vehicle => {
-        let currentStage = null;
-        const stageTimeline = [];
-  
-        vehicle.stages.forEach(stage => {
-          if (stage.eventType === "Start") {
-            let endStage;
-            let duration = null;
-  
-            if (stage.stageName === "Job Card Creation + Customer Approval") {
-              // End time is when Bay Allocation starts
-              endStage = vehicle.stages.find(s => s.stageName === "Bay Allocation Started" && s.eventType === "Start");
-            } else if (stage.stageName === "Bay Allocation Started") {
-              // End time is when Maintenance starts
-              endStage = vehicle.stages.find(s => s.stageName === "Maintenance Started" && s.eventType === "Start");
-            } else {
-              // Normal End event
-              endStage = vehicle.stages.find(s => s.stageName === stage.stageName && s.eventType === "End");
-            }
-  
-            if (endStage) {
-              duration = new Date(endStage.timestamp) - new Date(stage.timestamp);
-            } else {
-              currentStage = stage.stageName; // If no end event, vehicle is still in this stage
-            }
-  
-            stageTimeline.push({
-              stageName: stage.stageName,
-              startTime: stage.timestamp,
-              endTime: endStage ? endStage.timestamp : null,
-              duration: duration ? formatTime(duration) : "Still In Progress"
-            });
-          }
-        });
-  
-        return {
-          vehicleNumber: vehicle.vehicleNumber,
-          currentStage,
-          stageTimeline
-        };
-      });
-  
-      res.json({ success: true, vehicles: vehicleData });
-  
-    } catch (error) {
-      console.error("Error in /dashboard/all-vehicles:", error);
-      res.status(500).json({ success: false, message: "Server error", error });
+  try {
+    // Fetch all vehicles from the database
+    const vehicles = await Vehicle.find().sort({ entryTime: -1 });
+
+    if (!vehicles || vehicles.length === 0) {
+      return res.status(404).json({ success: false, message: "No vehicles found." });
     }
-  });
+
+    // Process each vehicle to extract stage timeline and current stage
+    const vehicleData = vehicles.map(vehicle => {
+      let currentStage = null;
+      const stageTimeline = [];
+
+      vehicle.stages.forEach(stage => {
+        if (stage.eventType === "Start") {
+          let endStage;
+          let duration = null;
+
+          if (stage.stageName === "Job Card Creation + Customer Approval") {
+            // End time is when Bay Allocation starts
+            endStage = vehicle.stages.find(s => s.stageName === "Bay Allocation Started" && s.eventType === "Start");
+          } else if (stage.stageName === "Bay Allocation Started") {
+            // 🔥 Fix: Now matches "Bay Work: PM" or other types
+            endStage = vehicle.stages.find(s => s.stageName.startsWith("Bay Work:") && s.eventType === "Start");
+          } else {
+            // Normal End event
+            endStage = vehicle.stages.find(s => s.stageName === stage.stageName && s.eventType === "End");
+          }
+
+          if (endStage) {
+            duration = new Date(endStage.timestamp) - new Date(stage.timestamp);
+          } else {
+            currentStage = stage.stageName; // If no end event, vehicle is still in this stage
+          }
+
+          stageTimeline.push({
+            stageName: stage.stageName,
+            startTime: stage.timestamp,
+            endTime: endStage ? endStage.timestamp : null,
+            duration: duration ? formatTime(duration) : "Still In Progress"
+          });
+        }
+      });
+
+      return {
+        vehicleNumber: vehicle.vehicleNumber,
+        currentStage,
+        stageTimeline
+      };
+    });
+
+    res.json({ success: true, vehicles: vehicleData });
+
+  } catch (error) {
+    console.error("Error in /dashboard/all-vehicles:", error);
+    res.status(500).json({ success: false, message: "Server error", error });
+  }
+});
+
 
 const formatTime = (ms) => {
     const seconds = Math.floor(ms / 1000);
