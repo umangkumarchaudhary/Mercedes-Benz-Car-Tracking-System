@@ -174,8 +174,6 @@ router.get("/dashboard/vehicle-count-per-stage", async (req, res) => {
 });
 
 
-
-//route to fetch all vehicles from database
 router.get("/dashboard/all-vehicles", async (req, res) => {
   try {
     // Fetch all vehicles from the database
@@ -189,6 +187,14 @@ router.get("/dashboard/all-vehicles", async (req, res) => {
     const vehicleData = vehicles.map(vehicle => {
       let currentStage = null;
       const stageTimeline = [];
+
+      // ✅ Add "Security In" at the beginning with only entryTime
+      stageTimeline.push({
+        stageName: "Security IN",
+        startTime: vehicle.entryTime, // Only Entry Time here
+        endTime: null, // No Exit Time
+        duration: null // No duration
+      });
 
       vehicle.stages.forEach(stage => {
         if (stage.eventType === "Start") {
@@ -212,14 +218,27 @@ router.get("/dashboard/all-vehicles", async (req, res) => {
             currentStage = stage.stageName; // If no end event, vehicle is still in this stage
           }
 
-          stageTimeline.push({
-            stageName: stage.stageName,
-            startTime: stage.timestamp,
-            endTime: endStage ? endStage.timestamp : null,
-            duration: duration ? formatTime(duration) : "Still In Progress"
-          });
+          // ✅ Push all normal stages except Security Gate
+          if (stage.stageName !== "Security Gate") {
+            stageTimeline.push({
+              stageName: stage.stageName,
+              startTime: stage.timestamp,
+              endTime: endStage ? endStage.timestamp : null,
+              duration: duration ? formatTime(duration) : "Still In Progress"
+            });
+          }
         }
       });
+
+      // ✅ Change "Security Gate" to "Security Out" for exit time
+      if (vehicle.exitTime) {
+        stageTimeline.push({
+          stageName: "Security Out", // 🔥 Fix: Renaming Security Gate to Security Out
+          startTime: null, // No Entry Time
+          endTime: vehicle.exitTime, // Only Exit Time here
+          duration: null // No duration
+        });
+      }
 
       return {
         vehicleNumber: vehicle.vehicleNumber,
@@ -235,6 +254,7 @@ router.get("/dashboard/all-vehicles", async (req, res) => {
     res.status(500).json({ success: false, message: "Server error", error });
   }
 });
+
 
 
 const formatTime = (ms) => {
