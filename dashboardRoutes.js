@@ -37,7 +37,7 @@ router.get("/dashboard/stage-performance", async (req, res) => {
             );
           } else if (stage.stageName === "Bay Allocation Started") {
             endStage = vehicle.stages.find(
-              (s) => s.stageName === "Maintenance Started" && s.eventType === "Start"
+              (s) => s.stageName.startsWith("Bay Work:") && s.eventType === "Start"
             );
           } else {
             endStage = vehicle.stages.find(
