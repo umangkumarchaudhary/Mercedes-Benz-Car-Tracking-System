@@ -189,9 +189,23 @@ router.get("/dashboard/all-vehicles", async (req, res) => {
     const vehicleData = vehicles.map(vehicle => {
       let currentStage = null;
       const stageTimeline = [];
+      let securityInTime = null;
+      let securityOutTime = null;
 
+      // First pass to find security times
       vehicle.stages.forEach(stage => {
-        if (stage.eventType === "Start") {
+        if (stage.stageName === "Security Gate") {
+          if (stage.eventType === "Start") {
+            securityInTime = stage.timestamp;
+          } else if (stage.eventType === "End") {
+            securityOutTime = stage.timestamp;
+          }
+        }
+      });
+
+      // Second pass for other stages
+      vehicle.stages.forEach(stage => {
+        if (stage.eventType === "Start" && stage.stageName !== "Security Gate") {
           let endStage;
           let duration = null;
 
@@ -199,7 +213,7 @@ router.get("/dashboard/all-vehicles", async (req, res) => {
             // End time is when Bay Allocation starts
             endStage = vehicle.stages.find(s => s.stageName === "Bay Allocation Started" && s.eventType === "Start");
           } else if (stage.stageName === "Bay Allocation Started") {
-            // 🔥 Fix: Now matches "Bay Work: PM" or other types
+            // Find Bay Work start
             endStage = vehicle.stages.find(s => s.stageName.startsWith("Bay Work:") && s.eventType === "Start");
           } else {
             // Normal End event
@@ -220,6 +234,34 @@ router.get("/dashboard/all-vehicles", async (req, res) => {
           });
         }
       });
+
+      // Add Security IN at the beginning
+      if (securityInTime) {
+        stageTimeline.unshift({
+          stageName: "Security IN",
+          startTime: securityInTime,
+          endTime: null,
+          duration: "--"
+        });
+      }
+
+      // Add Security Out at the end if exists
+      if (securityOutTime) {
+        stageTimeline.push({
+          stageName: "Security Out",
+          startTime: securityOutTime,
+          endTime: securityOutTime,
+          duration: "--"
+        });
+      } else if (!currentStage && securityInTime) {
+        // If vehicle is completed but no security out, use exitTime if available
+        stageTimeline.push({
+          stageName: "Security Out",
+          startTime: vehicle.exitTime || securityInTime,
+          endTime: vehicle.exitTime || securityInTime,
+          duration: "--"
+        });
+      }
 
       return {
         vehicleNumber: vehicle.vehicleNumber,
