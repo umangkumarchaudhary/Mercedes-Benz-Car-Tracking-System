@@ -150,25 +150,164 @@ router.get("/dashboard/vehicle-count-per-stage", async (req, res) => {
 
     const allVehicles = await Vehicle.find(query);
 
-    let stageCount = {}; // Store unique vehicle count per stage
+    let stageData = {}; // Store stage data with count and vehicles
 
     allVehicles.forEach((vehicle) => {
-      let uniqueStages = new Set();
-      vehicle.stages.forEach((stage) => uniqueStages.add(stage.stageName));
+      // Track which stages are currently active for this vehicle
+      const activeStages = {};
 
-      uniqueStages.forEach((stage) => {
-        stageCount[stage] = (stageCount[stage] || 0) + 1;
+      // Process all stages in chronological order
+      vehicle.stages.forEach((stage) => {
+        if (stage.eventType === "Start") {
+          // Mark stage as active with vehicle info
+          activeStages[stage.stageName] = {
+            vehicleNumber: vehicle.vehicleNumber,
+            timestamp: stage.timestamp,
+            // Add other relevant info if needed
+            workType: stage.workType,
+            bayNumber: stage.bayNumber
+          };
+        } else if (stage.eventType === "End") {
+          // Remove from active stages when ended
+          delete activeStages[stage.stageName];
+        }
+      });
+
+      // Add all currently active stages to our stageData
+      Object.keys(activeStages).forEach((stageName) => {
+        if (!stageData[stageName]) {
+          stageData[stageName] = {
+            count: 0,
+            vehicles: []
+          };
+        }
+        stageData[stageName].count += 1;
+        stageData[stageName].vehicles.push({
+          vehicleNumber: activeStages[stageName].vehicleNumber,
+          enteredAt: activeStages[stageName].timestamp,
+          // Include additional stage-specific info
+          ...(activeStages[stageName].workType && { workType: activeStages[stageName].workType }),
+          ...(activeStages[stageName].bayNumber && { bayNumber: activeStages[stageName].bayNumber })
+        });
       });
     });
 
-    let response = Object.keys(stageCount).map((stageName) => ({
+    // Format the response
+    let response = Object.keys(stageData).map((stageName) => ({
       stageName,
-      totalVehicles: stageCount[stageName],
+      totalVehicles: stageData[stageName].count,
+      vehicles: stageData[stageName].vehicles
     }));
 
-    res.json({ success: true, vehicleCountPerStage: response, filterDays: days || "All Data" });
+    res.json({ 
+      success: true, 
+      vehicleCountPerStage: response, 
+      filterDays: days || "All Data" 
+    });
   } catch (error) {
     console.error("❌ Error in /dashboard/vehicle-count-per-stage:", error);
+    res.status(500).json({ success: false, message: "Server error", error });
+  }
+});
+
+router.get("/dashboard/vehicle-stage-analytics", async (req, res) => {
+  try {
+    const { days, showAll = false } = req.query;
+    let query = {};
+
+    if (days && days !== "all") {
+      const daysInt = parseInt(days);
+      if (!isNaN(daysInt)) {
+        let filterDate = new Date();
+        filterDate.setDate(filterDate.getDate() - daysInt);
+        query.entryTime = { $gte: filterDate };
+      }
+    }
+
+    const allVehicles = await Vehicle.find(query).sort({ entryTime: -1 });
+
+    let stageAnalytics = {};
+    let irregularities = [];
+
+    allVehicles.forEach((vehicle) => {
+      const vehicleStages = {};
+      
+      // Group events by stage name
+      vehicle.stages.forEach((stage) => {
+        if (!vehicleStages[stage.stageName]) {
+          vehicleStages[stage.stageName] = [];
+        }
+        vehicleStages[stage.stageName].push(stage);
+      });
+
+      // Analyze each stage's events
+      Object.entries(vehicleStages).forEach(([stageName, events]) => {
+        // Sort events by timestamp
+        events.sort((a, b) => a.timestamp - b.timestamp);
+
+        if (!stageAnalytics[stageName]) {
+          stageAnalytics[stageName] = {
+            totalVehicles: 0,
+            completed: 0,
+            pending: 0,
+            vehicles: []
+          };
+        }
+
+        const lastEvent = events[events.length - 1];
+        const isCompleted = lastEvent.eventType === "End";
+        const duration = isCompleted ? 
+          (lastEvent.timestamp - events[0].timestamp) / (1000 * 60) : null; // in minutes
+
+        stageAnalytics[stageName].totalVehicles += 1;
+        
+        if (isCompleted) {
+          stageAnalytics[stageName].completed += 1;
+        } else {
+          stageAnalytics[stageName].pending += 1;
+          // Add to irregularities if not completed
+          irregularities.push({
+            vehicleNumber: vehicle.vehicleNumber,
+            stageName,
+            startedAt: events[0].timestamp,
+            pendingDuration: (new Date() - events[0].timestamp) / (1000 * 60), // minutes
+            role: events[0].role
+          });
+        }
+
+        // Add vehicle details
+        stageAnalytics[stageName].vehicles.push({
+          vehicleNumber: vehicle.vehicleNumber,
+          status: isCompleted ? "Completed" : "Pending",
+          startedAt: events[0].timestamp,
+          ...(isCompleted && { completedAt: lastEvent.timestamp, duration }),
+          events: showAll ? events : undefined // Only include full events if requested
+        });
+      });
+    });
+
+    // Format response
+    let response = Object.keys(stageAnalytics).map((stageName) => ({
+      stageName,
+      ...stageAnalytics[stageName],
+      vehicles: stageAnalytics[stageName].vehicles
+        .sort((a, b) => b.startedAt - a.startedAt) // Sort by most recent first
+    }));
+
+    res.json({
+      success: true,
+      analytics: response,
+      irregularities: irregularities.sort((a, b) => b.pendingDuration - a.pendingDuration),
+      summary: {
+        totalStages: Object.keys(stageAnalytics).length,
+        totalVehicles: allVehicles.length,
+        totalPending: irregularities.length
+      },
+      filterDays: days || "All Data"
+    });
+
+  } catch (error) {
+    console.error("❌ Error in /dashboard/vehicle-stage-analytics:", error);
     res.status(500).json({ success: false, message: "Server error", error });
   }
 });
